@@ -317,6 +317,70 @@ def save_results_csv(results, output_path):
     print(f"saved results to {output_path}")
     return df
 
+# ==============================================================================
+# ADAPTIVE THRESHOLDS - TWEAK THESE TO IMPROVE DETECTION
+# ==============================================================================
+# Default: 0.5 for all emotions (too high for rare emotions)
+# Recommended: Lower thresholds for underdetected emotions
+EMOTION_THRESHOLDS = {
+    'joy': 0.45,           # usually detected well
+    'sadness': 0.35,       # often underdetected - lower threshold
+    'anger': 0.40,         # moderately detected
+    'fear': 0.30,          # frequently underdetected - much lower
+    'trust': 0.45,         # usually detected well
+    'disgust': 0.40,       # moderately detected
+    'surprise': 0.35,      # often underdetected - lower threshold
+    'anticipation': 0.25,  # most underdetected - very low threshold
+}
+
+# Dyad detection threshold (lower = more dyads detected)
+DYAD_THRESHOLD = 0.2  # default was 0.3, lowered for better detection
+
+# ==============================================================================
+
+def predict_emotions_adaptive(model, tokenizer, text, device='cpu', thresholds=None):
+    """
+    predict plutchik emotions for a text using adaptive thresholds
+    returns dict with emotion probabilities and binary predictions
+    """
+    if thresholds is None:
+        thresholds = EMOTION_THRESHOLDS
+
+    # tokenize text
+    encoding = tokenizer(
+        text,
+        add_special_tokens=True,
+        max_length=128,
+        padding='max_length',
+        truncation=True,
+        return_attention_mask=True,
+        return_tensors='pt'
+    )
+
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device)
+
+    # get predictions
+    with torch.no_grad():
+        _, probs = model(input_ids, attention_mask)
+        probs = probs.squeeze().cpu().numpy()
+
+    # convert to dict
+    emotion_probs = {emotion: float(probs[i]) for i, emotion in enumerate(plutchik_emotions)}
+
+    # binary predictions using ADAPTIVE thresholds
+    emotion_binary = {}
+    for emotion, prob in emotion_probs.items():
+        threshold = thresholds.get(emotion, 0.5)
+        emotion_binary[emotion] = 1 if prob >= threshold else 0
+
+    return {
+        'probabilities': emotion_probs,
+        'predictions': emotion_binary,
+        'predicted_emotions': [e for e, v in emotion_binary.items() if v == 1],
+        'thresholds_used': thresholds
+    }
+
 # main script
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='predict emotions and detect dyads')
@@ -325,8 +389,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=str, default='predictions.csv', help='output csv file')
     parser.add_argument('--text', type=str, help='single text to analyze')
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--emotion_threshold', type=float, default=0.5)
-    parser.add_argument('--dyad_threshold', type=float, default=0.3)
+    parser.add_argument('--use_adaptive', action='store_true', default=True, help='use adaptive thresholds (default: True)')
     args = parser.parse_args()
 
     # set up device
@@ -336,22 +399,35 @@ if __name__ == '__main__':
     model = load_model(args.model, device)
     tokenizer = AutoTokenizer.from_pretrained('distilbert-base-uncased')
 
+    print("\n" + "="*80)
+    print("ADAPTIVE THRESHOLDS ENABLED")
+    print("="*80)
+    print("Per-emotion thresholds:")
+    for emotion in plutchik_emotions:
+        threshold = EMOTION_THRESHOLDS.get(emotion, 0.5)
+        print(f"  {emotion:15s}: {threshold:.2f}")
+    print(f"Dyad threshold: {DYAD_THRESHOLD:.2f}")
+    print("="*80)
+
     # single text analysis
     if args.text:
         print(f"\nanalyzing text: '{args.text}'")
-        result = analyze_text(model, tokenizer, args.text, device,
-                            args.emotion_threshold, args.dyad_threshold)
+        result = predict_emotions_adaptive(model, tokenizer, args.text, device, EMOTION_THRESHOLDS)
 
         print("\nemotion probabilities:")
-        for emotion, prob in sorted(result['emotions']['probabilities'].items(),
+        for emotion, prob in sorted(result['probabilities'].items(),
                                    key=lambda x: x[1], reverse=True):
             if prob > 0.1:
+                threshold = EMOTION_THRESHOLDS.get(emotion, 0.5)
                 bar = '█' * int(prob * 40)
-                pred = '✓' if prob >= args.emotion_threshold else ' '
-                print(f"  {pred} {emotion:15s} {prob:.3f} {bar}")
+                pred = '✓' if prob >= threshold else ' '
+                print(f"  {pred} {emotion:15s} {prob:.3f} [t={threshold:.2f}] {bar}")
+
+        dyads = detect_dyads(result['probabilities'], threshold=DYAD_THRESHOLD)
+        dominant_dyads = get_dominant_dyads(result['probabilities'], top_n=3, threshold=DYAD_THRESHOLD)
 
         print("\ndominant dyads:")
-        for i, dyad in enumerate(result['dominant_dyads'], 1):
+        for i, dyad in enumerate(dominant_dyads, 1):
             print(f"  {i}. {dyad['name']:20s} [{dyad['type']:10s}] strength: {dyad['strength']:.3f}")
             print(f"     {dyad['emotions'][0]} ({dyad['prob1']:.3f}) + {dyad['emotions'][1]} ({dyad['prob2']:.3f})")
 
@@ -361,21 +437,57 @@ if __name__ == '__main__':
 
         # read input file
         if args.input.endswith('.csv'):
-            # assume first column is text
             df = pd.read_csv(args.input)
             texts = df.iloc[:, 0].tolist()
         else:
-            # read as text file (one text per line)
             with open(args.input, 'r') as f:
                 texts = [line.strip() for line in f if line.strip()]
 
         print(f"found {len(texts)} texts to process")
 
-        # batch predict
-        results = batch_predict(model, tokenizer, texts, device,
-                              args.batch_size, args.emotion_threshold, args.dyad_threshold)
+        # batch predict with adaptive thresholds
+        results = []
+        for i in tqdm(range(0, len(texts), args.batch_size), desc="processing texts"):
+            batch_texts = texts[i:i+args.batch_size]
 
-        # save results
+            encodings = tokenizer(
+                batch_texts,
+                add_special_tokens=True,
+                max_length=128,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                return_tensors='pt'
+            )
+
+            input_ids = encodings['input_ids'].to(device)
+            attention_mask = encodings['attention_mask'].to(device)
+
+            with torch.no_grad():
+                _, probs = model(input_ids, attention_mask)
+                probs = probs.cpu().numpy()
+
+            for j, text in enumerate(batch_texts):
+                text_probs = {emotion: float(probs[j][k]) for k, emotion in enumerate(plutchik_emotions)}
+
+                # use adaptive thresholds
+                predictions = {}
+                for emotion, prob in text_probs.items():
+                    threshold = EMOTION_THRESHOLDS.get(emotion, 0.5)
+                    predictions[emotion] = 1 if prob >= threshold else 0
+
+                predicted_emotions = [e for e, v in predictions.items() if v == 1]
+                dyads = detect_dyads(text_probs, threshold=DYAD_THRESHOLD)
+                dominant_dyads = get_dominant_dyads(text_probs, top_n=3, threshold=DYAD_THRESHOLD)
+
+                results.append({
+                    'text': text,
+                    'emotion_probs': text_probs,
+                    'predicted_emotions': predicted_emotions,
+                    'dyads': dyads,
+                    'dominant_dyads': dominant_dyads
+                })
+
         df_results = save_results_csv(results, args.output)
 
         print(f"\nsummary statistics:")
@@ -383,7 +495,6 @@ if __name__ == '__main__':
         print(f"  avg dyads per text: {df_results['num_dyads'].mean():.2f}")
         print(f"  texts with multi-label: {(df_results['num_emotions'] > 1).sum()} ({(df_results['num_emotions'] > 1).sum() / len(df_results) * 100:.1f}%)")
 
-        # most common dyads
         dyad_counts = {}
         for col in ['dyad_1', 'dyad_2', 'dyad_3']:
             for dyad in df_results[col]:
@@ -394,7 +505,7 @@ if __name__ == '__main__':
         for dyad, count in sorted(dyad_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
             print(f"  {dyad:20s}: {count:4d} ({count/len(df_results)*100:.1f}%)")
 
-    # interactive mode
+    # interactive mode (default)
     else:
         print("\ninteractive mode - enter text to analyze (ctrl+c to exit)")
         while True:
@@ -403,20 +514,25 @@ if __name__ == '__main__':
                 if not text.strip():
                     continue
 
-                result = analyze_text(model, tokenizer, text, device,
-                                    args.emotion_threshold, args.dyad_threshold)
+                result = predict_emotions_adaptive(model, tokenizer, text, device, EMOTION_THRESHOLDS)
 
                 # show emotions
                 print("emotions:", end=" ")
-                for emotion in result['emotions']['predicted_emotions']:
-                    prob = result['emotions']['probabilities'][emotion]
+                for emotion in result['predicted_emotions']:
+                    prob = result['probabilities'][emotion]
                     print(f"{emotion}({prob:.2f})", end=" ")
-                print()
+                if not result['predicted_emotions']:
+                    print("none detected")
+                else:
+                    print()
 
                 # show dyads
-                if result['dominant_dyads']:
+                dyads = detect_dyads(result['probabilities'], threshold=DYAD_THRESHOLD)
+                dominant_dyads = get_dominant_dyads(result['probabilities'], top_n=3, threshold=DYAD_THRESHOLD)
+
+                if dominant_dyads:
                     print("dyads:", end=" ")
-                    for dyad in result['dominant_dyads'][:3]:
+                    for dyad in dominant_dyads[:3]:
                         print(f"{dyad['name']}({dyad['strength']:.2f})", end=" ")
                     print()
                 else:
