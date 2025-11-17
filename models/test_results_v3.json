@@ -1,0 +1,24 @@
+{
+  "config": {
+    "epochs": 3,
+    "batch_size": 16,
+    "learning_rate": 2e-05,
+    "dropout": 0.3,
+    "max_samples": null,
+    "device": "cuda"
+  },
+  "best_val_macro_f1": 0.5802510815496231,
+  "test_macro_f1": 0.5870629827628526,
+  "test_micro_f1": 0.6567559611421843,
+  "per_emotion_f1": {
+    "joy": 0.8079847908745247,
+    "sadness": 0.5797546012269938,
+    "anger": 0.5168711656441718,
+    "fear": 0.5098814229249012,
+    "trust": 0.7495597041211695,
+    "disgust": 0.48631743549648165,
+    "surprise": 0.5219482862297053,
+    "anticipation": 0.5241864555848724
+  },
+  "training_time_seconds": 3262.7356038093567
+}
