@@ -8,7 +8,7 @@ RoBERTa is generally more powerful than DistilBERT for emotion classification.
 this script:
 - loads and maps goemotions to plutchik's 8 emotions
 - loads xed, which is already labeled in plutchik space
-- loads synthetic_claude.csv (high-quality claude-generated data) and adds it to training
+- loads synthetic_claude_merged.csv (high-quality claude-generated data) and adds it to training
 - uses focal loss for handling class imbalance
 - applies layerwise learning rate decay for better fine-tuning
 - uses label smoothing to prevent overconfidence
@@ -56,7 +56,7 @@ else:
 # RoBERTa is larger than DistilBERT, so we adjust batch size accordingly
 config = {
     "epochs": 10,
-    "batch_size": 32,
+    "batch_size": 64,
     "learning_rate": 3e-5,  # INCREASED - RoBERTa needs higher LR
     "dropout": 0.1,
     "warmup_ratio": 0.15,  # INCREASED - longer warmup helps
@@ -64,7 +64,7 @@ config = {
     "use_focal_loss": False,  # DISABLED - causing issues with label smoothing
     "focal_gamma": 2.0,  # Not used when use_focal_loss=False
     "label_smoothing": 0.1,
-    "gradient_accumulation": 2,
+    "gradient_accumulation": 1,
     "layerwise_lr_decay": 0.90,  # More aggressive - top layers learn faster
     "max_length": 128,
 }
@@ -462,14 +462,14 @@ def load_synthetic_data(csv_path):
 
         return texts, labels
     except FileNotFoundError:
-        print("WARNING: synthetic_claude.csv not found!")
+        print("WARNING: synthetic_claude_merged.csv not found!")
         return [], []
     except Exception as e:
         print(f"WARNING: error loading synthetic data: {e}")
         return [], []
 
 
-synthetic_csv_path = Path("synthetic_claude.csv")
+synthetic_csv_path = Path("synthetic_claude_merged.csv")
 synthetic_texts, synthetic_labels = load_synthetic_data(synthetic_csv_path)
 synthetic_available = len(synthetic_texts) > 0
 
@@ -822,9 +822,7 @@ print("\n--- tuned threshold evaluation (per-emotion PR-curve) ---")
 # apply optimal thresholds
 all_test_predictions_tuned = np.zeros_like(all_test_probs)
 for i in range(len(plutchik_emotions)):
-    all_test_predictions_tuned[:, i] = (
-        all_test_probs[:, i] >= optimal_thresholds[i]
-    ).astype(int)
+    all_test_predictions_tuned[:, i] = (all_test_probs[:, i] >= optimal_thresholds[i]).astype(int)
 
 tuned_test_macro_f1 = f1_score(
     all_test_labels, all_test_predictions_tuned, average="macro", zero_division=0
@@ -871,8 +869,7 @@ results = {
         emotion: float(per_emotion_f1[i]) for i, emotion in enumerate(plutchik_emotions)
     },
     "per_emotion_f1_tuned": {
-        emotion: float(tuned_per_emotion_f1[i])
-        for i, emotion in enumerate(plutchik_emotions)
+        emotion: float(tuned_per_emotion_f1[i]) for i, emotion in enumerate(plutchik_emotions)
     },
     "optimal_thresholds": optimal_thresholds.tolist(),
     "training_time_seconds": time.time() - start_time,
@@ -896,9 +893,7 @@ print(f"  macro f1: {test_macro_f1:.4f}")
 print(f"  min f1: {per_emotion_f1.min():.4f}")
 print(f"  emotions >=67%: {int((per_emotion_f1 >= 0.67).sum())}/8")
 print(f"\ntest results (tuned thresholds):")
-print(
-    f"  macro f1: {tuned_test_macro_f1:.4f} (+{tuned_test_macro_f1 - test_macro_f1:.4f})"
-)
+print(f"  macro f1: {tuned_test_macro_f1:.4f} (+{tuned_test_macro_f1 - test_macro_f1:.4f})")
 print(f"  min f1: {tuned_per_emotion_f1.min():.4f}")
 print(f"  emotions >=67%: {emotions_above_67_tuned}/8")
 
@@ -909,9 +904,7 @@ else:
         plutchik_emotions[i] for i, f1 in enumerate(tuned_per_emotion_f1) if f1 < 0.67
     ]
     print(f"\nemotions below 67% (tuned): {below_67}")
-    print(
-        f"improvement from tuning: +{tuned_test_macro_f1 - test_macro_f1:.4f} macro F1"
-    )
+    print(f"improvement from tuning: +{tuned_test_macro_f1 - test_macro_f1:.4f} macro F1")
 
 print(f"\nresults saved to {results_path}")
 print(f"model checkpoint: {save_dir / 'best_model.pt'}")
