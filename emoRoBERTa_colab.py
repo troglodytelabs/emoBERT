@@ -55,18 +55,19 @@ else:
 
 # RoBERTa is larger than DistilBERT, so we adjust batch size accordingly
 config = {
-    "epochs": 10,
+    "epochs": 12,  # INCREASED from 10 - more time to converge
     "batch_size": 64,
-    "learning_rate": 3e-5,  # INCREASED - RoBERTa needs higher LR
-    "dropout": 0.1,
-    "warmup_ratio": 0.15,  # INCREASED - longer warmup helps
-    "weight_decay": 0.01,
-    "use_focal_loss": False,  # DISABLED - causing issues with label smoothing
-    "focal_gamma": 2.0,  # Not used when use_focal_loss=False
+    "learning_rate": 2e-5,  # SLIGHTLY LOWER - better for fine-tuning
+    "dropout": 0.15,  # INCREASED from 0.1 - reduce overfitting
+    "warmup_ratio": 0.1,  # DECREASED - faster warmup since we have more epochs
+    "weight_decay": 0.02,  # INCREASED from 0.01 - more regularization
+    "use_focal_loss": False,
+    "focal_gamma": 2.0,
     "label_smoothing": 0.1,
     "gradient_accumulation": 1,
-    "layerwise_lr_decay": 0.90,  # More aggressive - top layers learn faster
+    "layerwise_lr_decay": 0.85,  # MORE AGGRESSIVE from 0.90 - top layers learn faster
     "max_length": 128,
+    "patience": 5,  # NEW: early stopping patience
 }
 
 print(f"\nTraining Configuration:")
@@ -123,14 +124,7 @@ goemotions_to_plutchik = {
     "neutral": [],
 }
 
-xed_to_plutchik = {
-    "anger": ["anger"],
-    "disgust": ["disgust"],
-    "fear": ["fear"],
-    "joy": ["joy"],
-    "sadness": ["sadness"],
-    "surprise": ["surprise"],
-}
+# Note: XED dataset labels are already in Plutchik format, no mapping needed
 
 # step 4: improved dataset class with label smoothing support
 
@@ -376,8 +370,15 @@ print(
 
 def load_xed():
     print("\nloading xed (extended emotion dataset)...")
+
+    # load raw tsv directly from GitHub (HuggingFace dataset is broken)
     xed_raw = load_dataset(
-        "google-research-datasets/xed_english_finnish", "en_annotated"
+        "csv",
+        data_files={
+            "train": "https://raw.githubusercontent.com/Helsinki-NLP/XED/master/AnnotatedData/en-annotated.tsv"
+        },
+        delimiter="\t",
+        column_names=["sentence", "labels"],
     )
 
     all_texts = []
@@ -385,17 +386,21 @@ def load_xed():
 
     for example in tqdm(xed_raw["train"], desc="processing xed"):
         label_vec = [0] * len(plutchik_emotions)
-        for xed_emotion, plut_emotions in xed_to_plutchik.items():
-            if example.get(xed_emotion, 0) > 0:
-                for plut_emotion in plut_emotions:
-                    idx = plutchik_emotions.index(plut_emotion)
-                    label_vec[idx] = 1
 
-        if sum(label_vec) > 0:
-            all_texts.append(example["text"])
-            all_labels.append(label_vec)
+        # XED labels are already plutchik emotion names (or "neutral")
+        label_str = example["labels"].strip().lower()
+        if label_str in plutchik_emotions:
+            idx = plutchik_emotions.index(label_str)
+            label_vec[idx] = 1
+        # if label is "neutral" or unknown, vector stays all zeros
+
+        all_texts.append(example["sentence"])
+        all_labels.append(label_vec)
 
     total = len(all_texts)
+    if total == 0:
+        raise RuntimeError("xed dataset appears to be empty or could not be loaded")
+
     indices = np.random.RandomState(42).permutation(total)
 
     train_size = int(0.8 * total)
@@ -578,6 +583,7 @@ best_val_macro_f1 = 0.0
 train_losses = []
 val_losses = []
 val_f1_scores = []
+epochs_without_improvement = 0  # For early stopping
 
 for epoch in range(config["epochs"]):
     epoch_start = time.time()
@@ -680,6 +686,7 @@ for epoch in range(config["epochs"]):
 
     if val_macro_f1 > best_val_macro_f1:
         best_val_macro_f1 = val_macro_f1
+        epochs_without_improvement = 0  # Reset counter
 
         checkpoint = {
             "epoch": epoch,
@@ -701,6 +708,15 @@ for epoch in range(config["epochs"]):
         print(
             f"\n>> saved new best model (macro f1 = {val_macro_f1:.4f}, min f1 = {min_f1:.4f})"
         )
+    else:
+        epochs_without_improvement += 1
+        print(f"\nno improvement for {epochs_without_improvement} epoch(s)")
+
+        # Early stopping check
+        if epochs_without_improvement >= config.get("patience", 5):
+            print(f"\nEARLY STOPPING: No improvement for {config['patience']} epochs")
+            print(f"Stopping at epoch {epoch + 1}")
+            break
 
 # step 17: optimize thresholds using PR-curve on validation set
 
