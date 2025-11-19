@@ -4,6 +4,22 @@
 
 emoBERT is a multi-label emotion classification toolkit based on **Plutchik's 8-emotion model**. It provides training pipelines, inference scripts, and synthetic data generation for classifying text into emotional categories.
 
+### Purpose & Vision
+
+This is an **affective computing** project designed to power [moodlog.io](https://github.com/troglodytelabs/moodlog.io) - a mood tracking application that helps users understand their emotions over time. The emoBERT model will:
+
+1. **Analyze journal entries** - Process short text entries from users logging their daily moods
+2. **Predict base emotions** - Identify Plutchik's 8 emotions present in the text
+3. **Suggest dyadic relationships** - Combine emotions into more interpretable/meaningful concepts (e.g., joy + trust = love)
+4. **Track emotional patterns** - Help users understand mood trends and emotional health over time
+
+### Roadmap / Next Steps
+
+1. **Dyad interpretation layer** - Build on `emoPredict.py`'s dyad detection to provide human-readable emotional insights
+2. **Django integration** - Integrate the best-performing RoBERTa model into the moodlog.io Django backend
+3. **API endpoint** - Create prediction endpoint that accepts journal text and returns emotions + dyads
+4. **Mood visualization** - Display emotional patterns and trends in the moodlog.io frontend
+
 ### Core Emotions (Plutchik)
 ```
 joy, sadness, anger, fear, trust, disgust, surprise, anticipation
