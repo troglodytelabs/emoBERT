@@ -228,10 +228,13 @@ def main():
         description="Predict emotions using trained RoBERTa model"
     )
 
+    script_dir = Path(__file__).parent
+    default_model = str(script_dir / "../../models/best_model.pt")
+
     parser.add_argument(
         "--model",
         type=str,
-        default="models_roberta/best_model.pt",
+        default=default_model,
         help="Path to trained model checkpoint",
     )
     parser.add_argument("--text", type=str, help="Text to analyze")
@@ -254,11 +257,11 @@ def main():
         print("\nLooking for model in common locations...")
 
         # Try common locations
+        script_dir = Path(__file__).parent
         common_paths = [
-            "models_roberta/best_model.pt",
+            str(script_dir / "../../models/best_model.pt"),
             "models/best_model.pt",
             "best_model.pt",
-            "../models_roberta/best_model.pt",
         ]
 
         for path in common_paths:

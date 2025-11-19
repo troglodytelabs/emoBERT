@@ -75,7 +75,8 @@ for key, value in config.items():
     print(f"  {key:25s}: {value}")
 print("\nNOTE: Using weighted BCE instead of focal loss for stability")
 
-save_dir = Path("models_roberta")
+script_dir = Path(__file__).parent
+save_dir = script_dir / "../../models"
 save_dir.mkdir(parents=True, exist_ok=True)
 
 start_time = time.time()
@@ -474,7 +475,7 @@ def load_synthetic_data(csv_path):
         return [], []
 
 
-synthetic_csv_path = Path("synthetic_claude_merged.csv")
+synthetic_csv_path = script_dir / "../../data/synthetic/synthetic_claude_merged.csv"
 synthetic_texts, synthetic_labels = load_synthetic_data(synthetic_csv_path)
 synthetic_available = len(synthetic_texts) > 0
 

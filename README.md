@@ -1,135 +1,141 @@
-# Emotion Classification & Synthetic Emotion Generation Toolkit (emoBERT)
+# emoBERT - Multi-Label Emotion Classification Toolkit
 
-This repository contains a complete pipeline for **multi-label emotion classification** using **Plutchik’s 8-emotion model**, including:
+A complete pipeline for **multi-label emotion classification** using **Plutchik's 8-emotion model**, designed to power affective computing applications.
+
+## Purpose & Vision
+
+emoBERT is an **affective computing** project designed to power [moodlog.io](https://github.com/troglodytelabs/moodlog.io) - a mood tracking application that helps users understand their emotions over time. The emoBERT model will:
+
+1. **Analyze journal entries** - Process short text entries from users logging their daily moods
+2. **Predict base emotions** - Identify Plutchik's 8 emotions present in the text
+3. **Suggest dyadic relationships** - Combine emotions into more interpretable concepts (e.g., joy + trust = love)
+4. **Track emotional patterns** - Help users understand mood trends and emotional health over time
+
+## Core Emotions (Plutchik)
+
+```
+joy, sadness, anger, fear, trust, disgust, surprise, anticipation
+```
+
+The emotion order is critical - all label vectors, model outputs, and thresholds follow this exact sequence.
+
+## Features
 
 - Training on **GoEmotions + XED + synthetic Claude data**
 - Threshold tuning via **per-emotion PR curves**
 - Models based on `DistilBERT` and `RoBERTa`
-- A unified **prediction script** for inference
-- Synthetic dataset generation powered by LLMs (Claude)
+- Unified **prediction scripts** for inference with dyad detection
+- Synthetic dataset generation powered by Claude API
 
-All scripts assume the following directory structure:
+## Repository Structure
 
 ```
 emoBERT/
-│
-├── emoBERT.py
-├── emoRoBERTa_colab.py
-├── emoPredict_roberta.py
-├── emoGen_claude.py
-│
-├── synthetic_claude.csv
-├── synthetic_data.csv        # optional older version
-│
-├── models/
-│   ├── best_model.pt
-│   └── ...
-│
-└── results/
-    ├── test_results.json
-    └── ...
+├── src/
+│   ├── training/
+│   │   ├── emoBERT.py           # CPU training script (DistilBERT)
+│   │   ├── emoBERT_colab.py     # GPU training script (DistilBERT, Colab)
+│   │   └── emoRoBERTa_colab.py  # GPU training script (RoBERTa, Colab) - RECOMMENDED
+│   ├── inference/
+│   │   ├── emoPredict.py        # Inference with DistilBERT + dyad detection
+│   │   └── emoPredict_roberta.py # Inference with RoBERTa - RECOMMENDED
+│   └── data_generation/
+│       ├── emoGen.py            # Synthetic data generation (templates/backtrans)
+│       ├── emoGen_claude.py     # Synthetic data generation using Claude API
+│       └── emoGen_claude_v2.py  # Alternate synthetic data generator (async)
+├── data/
+│   └── synthetic/
+│       ├── synthetic_claude.csv        # Generated synthetic training data
+│       └── synthetic_claude_merged.csv # Combined synthetic datasets
+├── models/                    # Model checkpoints and results
+│   ├── best_model.pt          # Best trained model checkpoint
+│   └── test_results.json      # Training metrics and optimal thresholds
+├── README.md
+└── CLAUDE.md                  # Detailed AI assistant guide
 ```
 
 ---
 
-# 1. Models Used
+## Performance Benchmarks
+
+Current best results (RoBERTa with tuned thresholds):
+- **Test Macro F1: 0.6277**
+- **Test Micro F1: 0.6838**
+- Best emotion: joy (0.83 F1)
+- Hardest emotion: fear (0.54 F1)
+
+**Goal: All emotions >67% F1**
+
+---
+
+## Models Used
+
 This project trains classifiers using:
 
 - **DistilBERT** (efficient, CPU-friendly)
-- **RoBERTa-base** (stronger model, GPU recommended)
+- **RoBERTa-base** (stronger model, GPU recommended) - **RECOMMENDED**
 
-Both models predict **8 independent emotion probabilities**:
-
-```
-joy, sadness, anger, fear,
-trust, disgust, surprise, anticipation
-```
+Both models predict **8 independent emotion probabilities** using:
+- `RobertaModel → dropout(0.15) → Linear(768 → 8) → sigmoid`
 
 Labels are converted from **GoEmotions** fine-grained taxonomy and aligned with **XED** (already in Plutchik space).
 
 ---
 
-# 2. Script Overview
+## Quick Start
 
----
+### Installation
 
-## 📘 emoBERT.py — CPU-Friendly Training Script
-
-A full training pipeline using **DistilBERT**:
-
-- Loads & maps **GoEmotions → Plutchik**
-- Loads **XED** (80/10/10 split)
-- Loads **synthetic_claude.csv**
-- Trains using:
-  - `BCEWithLogitsLoss`
-  - `AdamW (2e-5)`
-  - Batch size **16**
-  - Linear warmup scheduler
-- Performs **per-emotion PR-curve threshold tuning**
-- Saves:
-  - `models/best_model.pt`
-  - `results/test_results.json`
-
-### Run:
 ```bash
-python emoBERT.py --epochs 3 --batch_size 16
+pip install torch transformers datasets scikit-learn pandas tqdm
+
+# For Colab GPU
+pip install accelerate
+
+# For synthetic data generation
+pip install anthropic
 ```
 
-### Output:
-```
-models/best_model.pt
-results/test_results.json
-```
+### Training (RoBERTa - Recommended)
 
----
-
-## 📗 emoRoBERTa_colab.py — GPU-Optimized RoBERTa Training (Colab)
-
-A faster & more powerful version using **RoBERTa-base**.
-
-Provides:
-
-- HuggingFace `AutoModelForSequenceClassification`
-- Mixed precision when available (`torch.cuda.amp`)
-- Larger batch sizes possible on GPU
-- Same preprocessing & synthetic data pipeline as emoBERT.py
-- Optional full threshold-tuning integration
-
-### Run in Colab:
 ```bash
-!python emoRoBERTa_colab.py --epochs 3 --batch_size 16
+python src/training/emoRoBERTa_colab.py
 ```
 
-Produces:
+Default configuration:
+```python
+config = {
+    "epochs": 12,
+    "batch_size": 64,
+    "learning_rate": 2e-5,
+    "dropout": 0.15,
+    "warmup_ratio": 0.1,
+    "weight_decay": 0.02,
+    "label_smoothing": 0.1,
+    "layerwise_lr_decay": 0.85,
+    "max_length": 128,
+    "patience": 5,  # Early stopping
+}
 ```
-models/best_model.pt
-results/test_results.json
-```
 
----
+### Inference
 
-## 📙 emoPredict_roberta.py — Inference Script
-
-Standalone prediction script for:
-
-- Moodlog app  
-- Django backend  
-- Jupyter notebooks  
-- Colab  
-
-Features:
-
-- Loads `best_model.pt`
-- Loads `optimal_thresholds` from `results/test_results.json`
-- Applies **per-emotion thresholds**
-- Outputs JSON-friendly predictions
-
-### Example:
+**Single text prediction**:
 ```bash
-python emoPredict_roberta.py --text "I feel nervous but excited for tomorrow."
+python src/inference/emoPredict_roberta.py --text "I feel nervous but excited for tomorrow."
 ```
 
-Output:
+**Interactive mode**:
+```bash
+python src/inference/emoPredict_roberta.py --interactive
+```
+
+**Batch processing**:
+```bash
+python src/inference/emoPredict_roberta.py --file input.txt --verbose
+```
+
+Output example:
 ```json
 {
   "joy": 0.12,
@@ -144,105 +150,53 @@ Output:
 }
 ```
 
----
+### Generate Synthetic Data
 
-## 📕 emoGen_claude.py — Synthetic Emotion Data Generator
-
-Utility script for generating **high-quality synthetic training samples** using Claude (or any LLM).  
-Produces CSV rows in the exact format required by the training scripts.
-
-Format:
-```
-text, joy_label, sadness_label, anger_label, fear_label,
-      trust_label, disgust_label, surprise_label, anticipation_label
-```
-
-### Run:
 ```bash
-python emoGen_claude.py --num_samples 5000 --output synthetic_claude.csv
+# Generate for all rare emotions
+python src/data_generation/emoGen_claude.py --all_rare --count 10000 --api_key sk-ant-...
+
+# Generate for specific emotion
+python src/data_generation/emoGen_claude.py --emotion fear --count 15000
 ```
+
+Required API key: Set `ANTHROPIC_API_KEY` env var or use `--api_key` flag.
 
 ---
 
-# 3. Synthetic Data Format
+## Synthetic Data Format
 
 Synthetic CSVs must include:
 
-```
-text, joy_label, sadness_label, anger_label, fear_label,
-      trust_label, disgust_label, surprise_label, anticipation_label
+```csv
+text,joy_label,sadness_label,anger_label,fear_label,trust_label,disgust_label,surprise_label,anticipation_label
+"Example text",1,0,0,0,1,0,0,0
 ```
 
-Place files in the repository root:
-```
-emoBERT/
-    synthetic_claude.csv
-```
+Place files in `data/synthetic/` directory.
 
 ---
 
-# 4. Model & Results Files
-
-### 📁 models/
-Holds checkpoints:
-- `best_model.pt`
-
-### 📁 results/
-Holds evaluation JSON:
-- `test_results.json` containing:
-  - validation macro F1
-  - test macro & micro F1
-  - **per-emotion thresholds**
-  - tuned metrics
-
-Example:
-```json
-{
-  "test_macro_f1": 0.5883,
-  "tuned_test_macro_f1": 0.6421,
-  "optimal_thresholds": {
-    "joy": 0.34,
-    "sadness": 0.47,
-    "anger": 0.52,
-    "fear": 0.41
-  }
-}
-```
-
----
-
-# 5. Installation
-
-```bash
-pip install torch transformers datasets scikit-learn pandas tqdm
-```
-
-GPU/Colab (optional):
-```bash
-pip install accelerate
-```
-
----
-
-# 6. Recommended Workflow
-
-- Local CPU training → `emoBERT.py`
-- Colab GPU training → `emoRoBERTa_colab.py`
-- Generate synthetic data → `emoGen_claude.py`
-- Production inference → `emoPredict_roberta.py`
-
----
-
-# 7. Threshold Tuning Notes
+## Threshold Tuning
 
 - Default threshold = **0.5**
 - PR-curve tuning finds an **optimal threshold per emotion**
-- Stored in results JSON
+- Optimal thresholds stored in `models/test_results.json`
+- Thresholds typically range from 0.53 to 0.79 depending on emotion
 - Applied automatically during inference
 
 ---
 
-# 8. Citations
+## Roadmap / Next Steps
+
+1. **Dyad interpretation layer** - Build on `emoPredict.py`'s dyad detection to provide human-readable emotional insights
+2. **Django integration** - Integrate the best-performing RoBERTa model into the moodlog.io Django backend
+3. **API endpoint** - Create prediction endpoint that accepts journal text and returns emotions + dyads
+4. **Mood visualization** - Display emotional patterns and trends in the moodlog.io frontend
+
+---
+
+## Citations
 
 If you use GoEmotions:
 ```
@@ -256,10 +210,14 @@ If you use XED:
 
 ---
 
-# 9. License
+## License
+
 MIT License.
 
 ---
 
-# 10. Contact
-For integration help, dataset expansion, or model troubleshooting, feel free to reach out.
+## Contributing
+
+For detailed technical information, code conventions, and development workflows, see [CLAUDE.md](CLAUDE.md).
+
+For integration help, dataset expansion, or model troubleshooting, feel free to reach out or open an issue.
