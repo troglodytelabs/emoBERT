@@ -30,16 +30,19 @@ parser.add_argument(
 parser.add_argument(
     "--samples", type=int, default=10000, help="Total samples to generate per emotion"
 )
+script_dir = Path(__file__).parent
+default_existing = str(script_dir / "../../data/synthetic/synthetic_claude.csv")
+default_output = str(script_dir / "../../data/synthetic/synthetic_claude_merged.csv")
 parser.add_argument(
     "--existing-csv",
     type=str,
-    default="synthetic_claude.csv",
+    default=default_existing,
     help="Path to existing synthetic data CSV",
 )
 parser.add_argument(
     "--output-csv",
     type=str,
-    default="synthetic_claude_merged.csv",
+    default=default_output,
     help="Path to save merged CSV",
 )
 parser.add_argument("--batch-size", type=int, default=10, help="Samples per API call")

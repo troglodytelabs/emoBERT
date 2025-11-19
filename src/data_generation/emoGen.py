@@ -492,7 +492,9 @@ if __name__ == '__main__':
     parser.add_argument('--strategy', type=str,
                        choices=['templates', 'backtrans', 'llm', 'hybrid'],
                        default='hybrid', help='Generation strategy')
-    parser.add_argument('--output', type=str, default='synthetic_data.csv',
+    script_dir = Path(__file__).parent
+    default_output = str(script_dir / "../../data/synthetic/synthetic_data.csv")
+    parser.add_argument('--output', type=str, default=default_output,
                        help='Output CSV file')
     parser.add_argument('--api_key', type=str, help='Anthropic API key for LLM generation')
     parser.add_argument('--all_rare', action='store_true',

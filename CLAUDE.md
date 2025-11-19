@@ -31,19 +31,28 @@ The emotion order is critical - all label vectors, model outputs, and thresholds
 
 ```
 emoBERT/
-├── emoBERT.py              # CPU training script (DistilBERT)
-├── emoBERT_colab.py         # GPU training script (DistilBERT, Colab)
-├── emoRoBERTa_colab.py      # GPU training script (RoBERTa, Colab) - RECOMMENDED
-├── emoPredict.py            # Inference with DistilBERT + dyad detection
-├── emoPredict_roberta.py    # Inference with RoBERTa - RECOMMENDED
-├── emoGen_claude.py         # Synthetic data generation using Claude API
-├── emoGen_claude_v2.py      # Alternate synthetic data generator
-├── synthetic_claude.csv     # Generated synthetic training data
-├── synthetic_claude_merged.csv  # Combined synthetic datasets
-├── models/                  # Model checkpoints and results
-│   ├── best_model.pt        # Best trained model checkpoint
-│   └── test_results.json    # Training metrics and optimal thresholds
-└── README.md
+├── src/
+│   ├── training/
+│   │   ├── emoBERT.py           # CPU training script (DistilBERT)
+│   │   ├── emoBERT_colab.py     # GPU training script (DistilBERT, Colab)
+│   │   └── emoRoBERTa_colab.py  # GPU training script (RoBERTa, Colab) - RECOMMENDED
+│   ├── inference/
+│   │   ├── emoPredict.py        # Inference with DistilBERT + dyad detection
+│   │   └── emoPredict_roberta.py # Inference with RoBERTa - RECOMMENDED
+│   └── data_generation/
+│       ├── emoGen.py            # Synthetic data generation (templates/backtrans)
+│       ├── emoGen_claude.py     # Synthetic data generation using Claude API
+│       └── emoGen_claude_v2.py  # Alternate synthetic data generator (async)
+├── data/
+│   └── synthetic/
+│       ├── synthetic_claude.csv        # Generated synthetic training data
+│       ├── synthetic_claude_merged.csv # Combined synthetic datasets
+│       └── synthetic_data.csv          # Legacy synthetic data
+├── models/                    # Model checkpoints and results
+│   ├── best_model.pt          # Best trained model checkpoint
+│   └── test_results.json      # Training metrics and optimal thresholds
+├── README.md
+└── CLAUDE.md
 ```
 
 ## Key Technical Details
@@ -103,15 +112,15 @@ Models use **per-emotion PR-curve threshold tuning** for optimal predictions:
 
 **Local CPU (DistilBERT)**:
 ```bash
-python emoBERT.py --epochs 3 --batch_size 16 --learning_rate 2e-5
+python src/training/emoBERT.py --epochs 3 --batch_size 16 --learning_rate 2e-5
 ```
 
 **Google Colab GPU (RoBERTa - Recommended)**:
 ```bash
-python emoRoBERTa_colab.py
+python src/training/emoRoBERTa_colab.py
 ```
 
-Default configuration in `emoRoBERTa_colab.py`:
+Default configuration in `src/training/emoRoBERTa_colab.py`:
 ```python
 config = {
     "epochs": 12,
@@ -131,30 +140,30 @@ config = {
 
 **Single text prediction**:
 ```bash
-python emoPredict_roberta.py --text "I'm excited about the future!"
+python src/inference/emoPredict_roberta.py --text "I'm excited about the future!"
 ```
 
 **Interactive mode**:
 ```bash
-python emoPredict_roberta.py --interactive
+python src/inference/emoPredict_roberta.py --interactive
 ```
 
 **Batch processing**:
 ```bash
-python emoPredict_roberta.py --file input.txt --verbose
+python src/inference/emoPredict_roberta.py --file input.txt --verbose
 ```
 
 ### Generating Synthetic Data
 
 ```bash
 # Generate for all rare emotions
-python emoGen_claude.py --all_rare --count 10000 --api_key sk-ant-...
+python src/data_generation/emoGen_claude.py --all_rare --count 10000 --api_key sk-ant-...
 
 # Generate for specific emotion
-python emoGen_claude.py --emotion fear --count 15000
+python src/data_generation/emoGen_claude.py --emotion fear --count 15000
 
 # Generate for all 8 emotions
-python emoGen_claude.py --all_emotions --count 15000
+python src/data_generation/emoGen_claude.py --all_emotions --count 15000
 ```
 
 Required API key: Set `ANTHROPIC_API_KEY` env var or use `--api_key` flag.
@@ -269,8 +278,8 @@ Goal: All emotions >67% F1
 
 ### Adding New Training Data
 1. Format data as CSV with required columns
-2. Place in repository root
-3. Update `load_synthetic_data()` function with new path
+2. Place in `data/synthetic/` directory
+3. Update `load_synthetic_data()` function with new path in training scripts
 4. Synthetic data is only added to training split (not val/test)
 
 ### Modifying Model Architecture
@@ -310,19 +319,19 @@ pip install anthropic
 
 ## File-Specific Notes
 
-### emoBERT.py (Lines 383-395)
-Contains hardcoded absolute path for synthetic data that should be changed for different environments.
+### src/training/emoBERT.py
+Uses relative path from script location to find synthetic data at `data/synthetic/synthetic_claude.csv`.
 
-### emoPredict.py (Lines 385-398)
+### src/inference/emoPredict.py
 Contains adaptive thresholds that can be manually tuned for better detection of specific emotions.
 
-### emoRoBERTa_colab.py (Lines 57-71)
+### src/training/emoRoBERTa_colab.py (Lines 57-71)
 Main configuration dict that controls all training hyperparameters.
 
 ## Testing Changes
 
 After making changes:
-1. Run training script on small dataset (`--max_samples 1000`)
+1. Run training script on small dataset: `python src/training/emoRoBERTa_colab.py` (modify config for quick test)
 2. Check validation metrics improve
-3. Test inference on sample texts
+3. Test inference on sample texts: `python src/inference/emoPredict_roberta.py --text "test text"`
 4. Verify output format matches expected structure

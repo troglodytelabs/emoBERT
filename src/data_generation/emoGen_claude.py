@@ -373,11 +373,13 @@ Examples:
         default=10000,
         help="Number of samples per emotion (default: 10000)",
     )
+    script_dir = Path(__file__).parent
+    default_output = str(script_dir / "../../data/synthetic/synthetic_claude.csv")
     parser.add_argument(
         "--output",
         type=str,
-        default="synthetic_claude.csv",
-        help="Output CSV file (default: synthetic_claude.csv)",
+        default=default_output,
+        help="Output CSV file (default: data/synthetic/synthetic_claude.csv)",
     )
     parser.add_argument(
         "--api_key",

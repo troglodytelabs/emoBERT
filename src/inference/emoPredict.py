@@ -448,10 +448,12 @@ def predict_emotions_adaptive(model, tokenizer, text, device="cpu", thresholds=N
 # main script
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="predict emotions and detect dyads")
+    script_dir = Path(__file__).parent
+    default_model_path = str(script_dir / "../../models/best_model.pt")
     parser.add_argument(
         "--model",
         type=str,
-        default="/Users/devindyson/Desktop/troglodytelabs/emoWork/emoBERT/models/best_model.pt",
+        default=default_model_path,
         help="path to trained model",
     )
     parser.add_argument("--input", type=str, help="input text file or csv")
